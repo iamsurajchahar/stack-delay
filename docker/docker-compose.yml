@@ -1,0 +1,95 @@
+version: "3.9"
+
+services:
+  mongodb:
+    image: mongo:7-jammy
+    container_name: sds-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: stack-decay-score
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: sds-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server
+    container_name: sds-api
+    ports:
+      - "4000:4000"
+    env_file:
+      - ../.env
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017/stack-decay-score
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      NODE_ENV: development
+      PORT: 4000
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../packages/server/src:/app/packages/server/src
+      - ../packages/shared/src:/app/packages/shared/src
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: sds-worker
+    env_file:
+      - ../.env
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017/stack-decay-score
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      NODE_ENV: development
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../packages/server/src:/app/packages/server/src
+      - ../packages/shared/src:/app/packages/shared/src
+    deploy:
+      replicas: 2
+
+  client:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.client
+    container_name: sds-client
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:4000
+    depends_on:
+      - api
+    volumes:
+      - ../packages/client/src:/app/packages/client/src
+
+volumes:
+  mongodb_data:
+  redis_data:

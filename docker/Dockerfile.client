@@ -1,0 +1,20 @@
+FROM node:20-alpine AS base
+
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+WORKDIR /app
+
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* turbo.json tsconfig.base.json ./
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/client/package.json ./packages/client/
+
+RUN pnpm install --frozen-lockfile || pnpm install
+
+COPY packages/shared/ ./packages/shared/
+COPY packages/client/ ./packages/client/
+
+RUN pnpm --filter @stack-decay/shared build
+
+EXPOSE 5173
+
+CMD ["pnpm", "--filter", "@stack-decay/client", "dev", "--host"]

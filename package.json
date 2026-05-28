@@ -1,0 +1,20 @@
+{
+  "name": "stack-decay-score",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Score your tech stack's health — dependency maintenance, community momentum, CVE history, EOL timelines",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "dev:server": "pnpm --filter @stack-decay/server dev",
+    "dev:client": "pnpm --filter @stack-decay/client dev",
+    "dev:worker": "pnpm --filter @stack-decay/server dev:worker"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

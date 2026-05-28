@@ -1,0 +1,35 @@
+FROM node:20-alpine AS base
+
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+WORKDIR /app
+
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* turbo.json tsconfig.base.json ./
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/server/package.json ./packages/server/
+
+RUN pnpm install --frozen-lockfile || pnpm install
+
+COPY packages/shared/ ./packages/shared/
+COPY packages/server/ ./packages/server/
+
+RUN pnpm --filter @stack-decay/shared build
+RUN pnpm --filter @stack-decay/server build
+
+FROM node:20-alpine AS production
+
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+WORKDIR /app
+
+COPY --from=base /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml* ./
+COPY --from=base /app/packages/shared/package.json ./packages/shared/
+COPY --from=base /app/packages/server/package.json ./packages/server/
+COPY --from=base /app/packages/shared/dist/ ./packages/shared/dist/
+COPY --from=base /app/packages/server/dist/ ./packages/server/dist/
+
+RUN pnpm install --prod --frozen-lockfile || pnpm install --prod
+
+EXPOSE 4000
+
+CMD ["node", "packages/server/dist/server.js"]

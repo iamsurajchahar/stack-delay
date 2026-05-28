@@ -1,0 +1,41 @@
+{
+  "name": "@stack-decay/server",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "dev:worker": "tsx watch src/workers/worker.bootstrap.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "start:worker": "node dist/workers/worker.bootstrap.js"
+  },
+  "dependencies": {
+    "@stack-decay/shared": "workspace:*",
+    "express": "^4.21.0",
+    "mongoose": "^8.8.0",
+    "ioredis": "^5.4.0",
+    "bullmq": "^5.20.0",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "axios": "^1.7.0",
+    "zod": "^3.23.0",
+    "helmet": "^8.0.0",
+    "cors": "^2.8.5",
+    "express-rate-limit": "^7.4.0",
+    "rate-limit-redis": "^4.2.0",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0",
+    "cookie-parser": "^1.4.7",
+    "socket.io": "^4.8.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/cookie-parser": "^1.4.7",
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.0"
+  }
+}
