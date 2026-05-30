@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -8,20 +9,40 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import type { TrendPoint } from '../../api/dashboard';
+import type { TrendData } from '../../api/dashboard';
 import { formatAxisDate } from '../../utils/chartHelpers';
 
 interface CrossRepoTrendChartProps {
-  data: TrendPoint[];
+  data: TrendData[];
 }
 
 export function CrossRepoTrendChart({ data }: CrossRepoTrendChartProps) {
+  // Flatten per-repo snapshots into date-keyed rows with an average score
+  const chartData = useMemo(() => {
+    const byDate = new Map<string, number[]>();
+    for (const repo of data) {
+      for (const snap of repo.snapshots) {
+        const scores = byDate.get(snap.date) || [];
+        scores.push(snap.score);
+        byDate.set(snap.date, scores);
+      }
+    }
+    return Array.from(byDate.entries())
+      .map(([date, scores]) => ({
+        date,
+        averageScore: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [data]);
+
+  if (chartData.length === 0) return null;
+
   return (
     <div className="card">
       <h3 className="mb-4 text-base font-semibold text-gray-900">Score Trend (All Repos)</h3>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+          <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis
               dataKey="date"

@@ -8,7 +8,7 @@ export function AppShell() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
       {/* Mobile overlay */}
       {mobileSidebarOpen && (
         <div

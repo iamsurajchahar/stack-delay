@@ -67,7 +67,7 @@ export function AlertsPage() {
             activeSection === 'history' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'
           }`}
         >
-          History ({history?.length || 0})
+          History ({history?.items?.length || 0})
         </button>
       </div>
 
@@ -98,7 +98,7 @@ export function AlertsPage() {
       )}
 
       {activeSection === 'history' && (
-        historyLoading ? <LoadingSpinner /> : <AlertHistory notifications={history || []} />
+        historyLoading ? <LoadingSpinner /> : <AlertHistory notifications={history?.items || []} />
       )}
 
       {showForm && (

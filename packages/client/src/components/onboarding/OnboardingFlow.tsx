@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { RepoSelector } from './RepoSelector';
 import { InitialScanProgress } from './InitialScanProgress';
+import { connectRepo } from '../../api/repos';
+import { triggerScan } from '../../api/scans';
 
 const steps = ['Select Repos', 'Scan Frequency', 'Initial Scan'];
 
@@ -10,7 +13,9 @@ export function OnboardingFlow() {
   const [selectedRepos, setSelectedRepos] = useState<any[]>([]);
   const [scanFrequency, setScanFrequency] = useState('weekly');
   const [connectedRepoIds, setConnectedRepoIds] = useState<string[]>([]);
+  const [connecting, setConnecting] = useState(false);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const handleReposSelected = (repos: any[]) => {
     setSelectedRepos(repos);
@@ -18,10 +23,38 @@ export function OnboardingFlow() {
   };
 
   const handleFrequencySelected = async () => {
-    // In production, this would call the API to connect repos
-    const ids = selectedRepos.map((r) => r.id || r.github_repo_id);
-    setConnectedRepoIds(ids);
-    setStep(2);
+    setConnecting(true);
+    try {
+      const connectedIds: string[] = [];
+      for (const repo of selectedRepos) {
+        try {
+          const connected = await connectRepo({
+            githubRepoId: repo.id,
+            fullName: repo.full_name,
+            owner: repo.owner?.login || repo.full_name.split('/')[0],
+            name: repo.name,
+            defaultBranch: repo.default_branch || 'main',
+            isPrivate: repo.private || false,
+            language: repo.language || '',
+            scanFrequency: scanFrequency as any,
+          });
+          const repoId = (connected as any)._id || (connected as any).id;
+          connectedIds.push(repoId);
+          // Auto-trigger scan for each connected repo
+          try { await triggerScan(repoId); } catch { /* scan may already be running */ }
+        } catch (err: any) {
+          // Skip already-connected repos
+          if (err?.response?.status !== 409) {
+            console.error('Failed to connect repo:', repo.full_name, err);
+          }
+        }
+      }
+      setConnectedRepoIds(connectedIds);
+      queryClient.invalidateQueries({ queryKey: ['repos'] });
+      setStep(2);
+    } finally {
+      setConnecting(false);
+    }
   };
 
   return (
@@ -91,9 +124,10 @@ export function OnboardingFlow() {
                 </button>
                 <button
                   onClick={handleFrequencySelected}
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                  disabled={connecting}
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
                 >
-                  Start Scanning
+                  {connecting ? 'Connecting...' : 'Start Scanning'}
                 </button>
               </div>
             </div>
@@ -102,6 +136,7 @@ export function OnboardingFlow() {
           {step === 2 && (
             <InitialScanProgress
               repoIds={connectedRepoIds}
+              repos={selectedRepos}
               onComplete={() => navigate('/')}
             />
           )}

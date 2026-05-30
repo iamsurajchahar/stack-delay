@@ -110,13 +110,7 @@ export function DepDetailPage() {
       {pkg?.latestHealth && (
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h2 className="text-lg font-semibold mb-4">Score Breakdown</h2>
-          <ScoreBreakdown scores={{
-            maintenance: 0,
-            community: 0,
-            vulnerability: 0,
-            eol: 0,
-            license: 0,
-          }} />
+          <ScoreBreakdown score={null} />
         </div>
       )}
 

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Bell, Settings, ChevronLeft, ChevronRight, LogOut, GitFork } from 'lucide-react';
+import { LayoutDashboard, Bell, Settings, ChevronLeft, ChevronRight, LogOut, GitFork, Users, ArrowRightLeft } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAuth } from '../../hooks/useAuth';
 import { useRepos } from '../../hooks/useRepos';
@@ -12,6 +12,8 @@ interface SidebarProps {
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/team', icon: Users, label: 'Team' },
+  { to: '/compare', icon: ArrowRightLeft, label: 'Compare' },
   { to: '/alerts', icon: Bell, label: 'Alerts' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];

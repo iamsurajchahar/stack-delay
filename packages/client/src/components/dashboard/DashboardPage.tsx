@@ -15,7 +15,7 @@ import { getGrade } from '@stack-decay/shared';
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { data: summary, isLoading: summaryLoading } = useQuery({
+  const { data: summary, isLoading: summaryLoading, isError: summaryError } = useQuery({
     queryKey: ['dashboard', 'summary'],
     queryFn: getSummary,
   });
@@ -23,7 +23,7 @@ export function DashboardPage() {
     queryKey: ['dashboard', 'trends'],
     queryFn: getTrends,
   });
-  const { data: repos, isLoading: reposLoading } = useRepos();
+  const { data: repos, isLoading: reposLoading, isError: reposError } = useRepos();
 
   const [filters, setFilters] = useState<FilterState>({
     search: '',
@@ -56,7 +56,7 @@ export function DashboardPage() {
       }
     });
 
-  if (summaryLoading || reposLoading) {
+  if ((summaryLoading || reposLoading) && !summaryError && !reposError) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
         <LoadingSpinner size="lg" />
