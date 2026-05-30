@@ -7,6 +7,9 @@ export interface NpmPackageInfo {
   homepage: string | null;
   repository: string | null;
   description: string | null;
+  releasesLastYear: number;
+  daysSinceLastRelease: number;
+  isDeprecated: boolean;
 }
 
 export interface NpmDownloadCount {
@@ -51,12 +54,40 @@ export async function getPackageInfo(name: string): Promise<NpmPackageInfo | nul
       repository = repo.url;
     }
 
+    // Extract release/maintenance data from the `time` field
+    const time = data.time as Record<string, string> | undefined;
+    let releasesLastYear = 0;
+    let daysSinceLastRelease = 0;
+
+    if (time) {
+      const now = Date.now();
+      const oneYearAgo = now - 365 * 24 * 60 * 60 * 1000;
+      let latestReleaseTime = 0;
+
+      for (const [key, dateStr] of Object.entries(time)) {
+        if (key === 'created' || key === 'modified') continue;
+        const ts = new Date(dateStr).getTime();
+        if (ts > oneYearAgo) releasesLastYear++;
+        if (ts > latestReleaseTime) latestReleaseTime = ts;
+      }
+
+      if (latestReleaseTime > 0) {
+        daysSinceLastRelease = Math.floor((now - latestReleaseTime) / (1000 * 60 * 60 * 24));
+      }
+    }
+
+    // Check if the latest version is deprecated
+    const isDeprecated = typeof latestMeta.deprecated === 'string' && latestMeta.deprecated.length > 0;
+
     return {
       latestVersion,
       license,
       homepage,
       repository,
       description,
+      releasesLastYear,
+      daysSinceLastRelease,
+      isDeprecated,
     };
   } catch (err: unknown) {
     const status = axios.isAxiosError(err) ? err.response?.status : undefined;

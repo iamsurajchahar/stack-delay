@@ -9,6 +9,7 @@ import * as osv from './osv.client';
 import * as endoflife from './endoflife.client';
 import * as librariesIo from './libraries-io.client';
 import * as githubAdvisory from './github-advisory.client';
+import * as githubRepo from './github-repo.client';
 
 interface EnrichmentInput {
   ecosystem: string;
@@ -92,7 +93,7 @@ async function safeCall<T>(
  * Returns a combined IHealthSnapshot or null if enrichment completely fails.
  */
 export async function enrichPackage(input: EnrichmentInput): Promise<IHealthSnapshot | null> {
-  const cacheKey = `enrich:${input.ecosystem}:${input.name}`;
+  const cacheKey = `enrich:${input.ecosystem}:${input.name}:${input.version || 'latest'}`;
 
   // Check cache first
   const cached = await cacheGet<IHealthSnapshot>(cacheKey);
@@ -117,6 +118,25 @@ export async function enrichPackage(input: EnrichmentInput): Promise<IHealthSnap
 
   // GitHub advisories
   await enrichFromGitHubAdvisories(input, snapshot);
+
+  // GitHub repo stats (stars, forks, issues, contributors, commits)
+  await enrichFromGitHubRepo(input, snapshot);
+
+  // Derive license risk tier from SPDX
+  if (snapshot.license.spdx) {
+    const spdxLower = snapshot.license.spdx.toLowerCase();
+    const permissive = ['mit', 'apache-2.0', 'bsd-2-clause', 'bsd-3-clause', 'isc', 'unlicense', '0bsd', 'cc0-1.0'];
+    const weakCopyleft = ['lgpl-2.1', 'lgpl-3.0', 'mpl-2.0', 'epl-2.0', 'epl-1.0'];
+    const strongCopyleft = ['gpl-2.0', 'gpl-3.0', 'agpl-3.0'];
+
+    if (permissive.some(l => spdxLower.includes(l))) {
+      snapshot.license.riskTier = 'low';
+    } else if (weakCopyleft.some(l => spdxLower.includes(l))) {
+      snapshot.license.riskTier = 'medium';
+    } else if (strongCopyleft.some(l => spdxLower.includes(l))) {
+      snapshot.license.riskTier = 'high';
+    }
+  }
 
   // Store in cache
   await cacheSet(cacheKey, snapshot, CACHE_TTL.HEALTH_SNAPSHOT);
@@ -175,8 +195,15 @@ async function enrichFromRegistry(
 
       if (pkgInfo) {
         snapshot.license.spdx = pkgInfo.license || '';
-        // Deprecated packages on npm sometimes have a "deprecated" field
-        // but we can't detect this from the basic info endpoint without checking versions
+        snapshot.maintenance.releasesLastYear = pkgInfo.releasesLastYear;
+        snapshot.maintenance.daysSinceLastRelease = pkgInfo.daysSinceLastRelease;
+        if (pkgInfo.isDeprecated) {
+          snapshot.eol.isDeprecated = true;
+        }
+        // Capture repo URL for GitHub stats enrichment
+        if (pkgInfo.repository && !input.repoUrl) {
+          input.repoUrl = pkgInfo.repository;
+        }
       }
 
       if (downloads) {
@@ -297,5 +324,39 @@ async function enrichFromGitHubAdvisories(
       snapshot.vulnerability.highCveCount,
       highCount,
     );
+  }
+}
+
+async function enrichFromGitHubRepo(
+  input: EnrichmentInput,
+  snapshot: IHealthSnapshot,
+): Promise<void> {
+  // We need a repository URL to look up GitHub stats.
+  // Try to get it from the repoUrl input or from npm registry data (already set on snapshot).
+  const repoUrl = input.repoUrl;
+  if (!repoUrl) return;
+
+  const stats = await safeCall('github-repo', () =>
+    githubRepo.getRepoStats(repoUrl, input.githubToken),
+  );
+
+  if (!stats) return;
+
+  // Populate community metrics
+  snapshot.community.starsCount = stats.starsCount;
+  snapshot.community.starsGrowth30d = stats.starsGrowth30d;
+  snapshot.community.forksCount = stats.forksCount;
+  snapshot.community.contributorCount = stats.contributorCount;
+
+  // Populate maintenance metrics from GitHub
+  snapshot.maintenance.commitsLast90d = stats.commitsLast90d;
+  snapshot.maintenance.openIssuesCount = stats.openIssuesCount;
+  snapshot.maintenance.closedIssuesLast90d = stats.closedIssuesLast90d;
+  snapshot.maintenance.openPrCount = stats.openPrCount;
+  snapshot.maintenance.avgIssueCloseDays = stats.avgIssueCloseDays;
+
+  // Update archived status from GitHub
+  if (stats.isArchived) {
+    snapshot.eol.isArchived = true;
   }
 }

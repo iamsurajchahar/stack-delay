@@ -60,7 +60,16 @@ export async function getAdvisories(
     const data = response.data;
     if (!Array.isArray(data)) return [];
 
+    // The GitHub Advisories API uses `package` as a text search, not exact match.
+    // Filter results to only include advisories that actually affect this specific package.
     return data
+      .filter((advisory: Record<string, unknown>) => {
+        if (!Array.isArray(advisory.vulnerabilities)) return false;
+        return (advisory.vulnerabilities as Array<Record<string, unknown>>).some((vuln) => {
+          const vulnPkg = vuln?.package as Record<string, unknown> | undefined;
+          return vulnPkg?.name === packageName && vulnPkg?.ecosystem === ghEcosystem;
+        });
+      })
       .map((advisory: Record<string, unknown>) => parseAdvisory(advisory))
       .filter(Boolean) as GitHubAdvisory[];
   } catch (err: unknown) {
