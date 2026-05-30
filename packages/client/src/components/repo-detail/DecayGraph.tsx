@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -41,11 +41,14 @@ export function DecayGraph({ repoId }: DecayGraphProps) {
   );
 
   const range = timeRanges.find((r) => r.label === selectedRange)!;
-  const from = range.days
-    ? new Date(Date.now() - range.days * 86400000).toISOString()
-    : undefined;
+  const from = useMemo(() => {
+    if (!range.days) return undefined;
+    const d = new Date();
+    d.setDate(d.getDate() - range.days);
+    return d.toISOString().split('T')[0];
+  }, [range.days]);
 
-  const { data: history, isLoading } = useScoreHistory(repoId, { from });
+  const { data: history, isLoading, isError } = useScoreHistory(repoId, { from });
 
   const toggleDimension = (dim: string) => {
     const next = new Set(visibleDimensions);
@@ -102,7 +105,7 @@ export function DecayGraph({ repoId }: DecayGraphProps) {
         ))}
       </div>
 
-      {isLoading ? (
+      {isLoading && !isError ? (
         <div className="flex h-64 items-center justify-center">
           <LoadingSpinner />
         </div>

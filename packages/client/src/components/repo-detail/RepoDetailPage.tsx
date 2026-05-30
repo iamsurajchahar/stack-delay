@@ -4,6 +4,7 @@ import { useRepo } from '../../hooks/useRepos';
 import { useCurrentScore } from '../../hooks/useScores';
 import { useQuery } from '@tanstack/react-query';
 import { getRecommendations } from '../../api/recommendations';
+import { getRepoVulnerabilities } from '../../api/scores';
 import { RepoHeader } from './RepoHeader';
 import { TabNav } from './TabNav';
 import { DecayGraph } from './DecayGraph';
@@ -11,21 +12,26 @@ import { ScoreBreakdown } from './ScoreBreakdown';
 import { DependencyTable } from './DependencyTable';
 import { VulnerabilityPanel } from './VulnerabilityPanel';
 import { EolTimeline } from './EolTimeline';
+import { HealthHeatmap } from './HealthHeatmap';
 import { RecommendationsPanel } from './RecommendationsPanel';
+import { LicensePanel } from './LicensePanel';
+import { DependencyTree } from './DependencyTree';
 import { LoadingSpinner } from '../shared/LoadingSpinner';
 import type { TabId } from '../../types';
 
 const tabs: { id: TabId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'dependencies', label: 'Dependencies' },
+  { id: 'tree', label: 'Dep Tree' },
   { id: 'vulnerabilities', label: 'Vulnerabilities' },
   { id: 'recommendations', label: 'Recommendations' },
+  { id: 'licenses', label: 'Licenses' },
 ];
 
 export function RepoDetailPage() {
   const { repoId } = useParams<{ repoId: string }>();
-  const { data: repo, isLoading: repoLoading } = useRepo(repoId!);
-  const { data: score, isLoading: scoreLoading } = useCurrentScore(repoId!);
+  const { data: repo, isLoading: repoLoading, isError: repoError } = useRepo(repoId!);
+  const { data: score, isLoading: scoreLoading, isError: scoreError } = useCurrentScore(repoId!);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
 
   const { data: recommendations } = useQuery({
@@ -34,7 +40,13 @@ export function RepoDetailPage() {
     enabled: !!repoId,
   });
 
-  if (repoLoading || scoreLoading) {
+  const { data: vulnerabilities } = useQuery({
+    queryKey: ['vulnerabilities', repoId],
+    queryFn: () => getRepoVulnerabilities(repoId!),
+    enabled: !!repoId,
+  });
+
+  if (repoLoading && !repoError) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
         <LoadingSpinner size="lg" />
@@ -49,11 +61,13 @@ export function RepoDetailPage() {
   const tabsWithCounts = tabs.map((t) => ({
     ...t,
     count:
-      t.id === 'vulnerabilities'
-        ? score?.vulnerableCount
-        : t.id === 'recommendations'
-          ? recommendations?.length
-          : undefined,
+      t.id === 'dependencies'
+        ? score?.totalDependencies
+        : t.id === 'vulnerabilities'
+          ? vulnerabilities?.length ?? score?.vulnerableCount
+          : t.id === 'recommendations'
+            ? recommendations?.length
+            : undefined,
   }));
 
   return (
@@ -72,16 +86,21 @@ export function RepoDetailPage() {
             </div>
           </div>
           <EolTimeline repoId={repo.id} />
+          <HealthHeatmap repoId={repo.id} />
         </div>
       )}
 
       {activeTab === 'dependencies' && <DependencyTable repoId={repo.id} />}
+
+      {activeTab === 'tree' && <DependencyTree repoId={repo.id} />}
 
       {activeTab === 'vulnerabilities' && <VulnerabilityPanel repoId={repo.id} />}
 
       {activeTab === 'recommendations' && (
         <RecommendationsPanel recommendations={recommendations || []} />
       )}
+
+      {activeTab === 'licenses' && <LicensePanel repoId={repo.id} />}
     </div>
   );
 }

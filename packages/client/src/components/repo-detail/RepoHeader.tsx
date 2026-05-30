@@ -1,6 +1,7 @@
 import { ExternalLink, RefreshCw } from 'lucide-react';
 import type { IRepository, IRepoScoreSnapshot } from '../../types';
 import { ScoreGauge } from './ScoreGauge';
+import { ExportMenu } from './ExportMenu';
 import { formatRelative } from '../../utils/formatDate';
 import { useScanStatus } from '../../hooks/useScanStatus';
 import { clsx } from 'clsx';
@@ -44,14 +45,17 @@ export function RepoHeader({ repo, score }: RepoHeaderProps) {
           </div>
         )}
       </div>
-      <button
-        onClick={() => startScan()}
-        disabled={isScanning}
-        className={clsx('btn-primary gap-2 self-start', isScanning && 'opacity-50')}
-      >
-        <RefreshCw className={clsx('h-4 w-4', isScanning && 'animate-spin')} />
-        {isScanning ? `${status}...` : 'Scan Now'}
-      </button>
+      <div className="flex gap-2 self-start">
+        <ExportMenu repoId={repo.id} />
+        <button
+          onClick={() => startScan()}
+          disabled={isScanning}
+          className={clsx('btn-primary gap-2', isScanning && 'opacity-50')}
+        >
+          <RefreshCw className={clsx('h-4 w-4', isScanning && 'animate-spin')} />
+          {isScanning ? `${status}...` : 'Scan Now'}
+        </button>
+      </div>
     </div>
   );
 }
