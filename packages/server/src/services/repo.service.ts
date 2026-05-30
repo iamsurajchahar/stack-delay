@@ -12,10 +12,10 @@ import { AppError } from '../middleware/errorHandler.middleware';
 import { logger } from '../utils/logger';
 
 export async function listUserRepos(userId: string): Promise<IRepositoryDocument[]> {
-  return Repository.find({ userId: new Types.ObjectId(userId), isActive: true })
+  const repos = await Repository.find({ userId: new Types.ObjectId(userId), isActive: true })
     .sort({ updatedAt: -1 })
-    .lean()
-    .exec() as Promise<IRepositoryDocument[]>;
+    .exec();
+  return repos;
 }
 
 export async function connectRepo(

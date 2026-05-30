@@ -13,7 +13,7 @@ export async function githubRedirect(_req: Request, res: Response, next: NextFun
       state: Math.random().toString(36).substring(2),
     });
 
-    res.redirect(`https://github.com/login/oauth/authorize?${params.toString()}`);
+    res.json({ url: `https://github.com/login/oauth/authorize?${params.toString()}` });
   } catch (err) {
     next(err);
   }

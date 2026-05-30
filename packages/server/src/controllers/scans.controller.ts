@@ -3,6 +3,7 @@ import { Types } from 'mongoose';
 import { Scan } from '../models/Scan';
 import { Repository } from '../models/Repository';
 import { AppError } from '../middleware/errorHandler.middleware';
+import { runInlineScan } from '../services/inlineScan.service';
 
 export async function trigger(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -23,18 +24,26 @@ export async function trigger(req: Request, res: Response, next: NextFunction): 
       throw new AppError('Repository not found', 404, 'REPO_NOT_FOUND');
     }
 
-    // Check for already-running scan
+    // Check for already-running scan — auto-fail scans stuck for more than 5 minutes
     const activeScan = await Scan.findOne({
       repositoryId: repo._id,
       status: { $in: ['pending', 'scanning', 'enriching', 'scoring'] },
     });
 
     if (activeScan) {
-      throw new AppError(
-        'A scan is already in progress for this repository',
-        409,
-        'SCAN_ALREADY_RUNNING',
-      );
+      const ageMs = Date.now() - new Date(activeScan.createdAt).getTime();
+      if (ageMs > 5 * 60 * 1000) {
+        activeScan.status = 'failed';
+        activeScan.errorMessage = 'Scan timed out';
+        activeScan.completedAt = new Date();
+        await activeScan.save();
+      } else {
+        throw new AppError(
+          'A scan is already in progress for this repository',
+          409,
+          'SCAN_ALREADY_RUNNING',
+        );
+      }
     }
 
     const triggeredBy = (req.body.triggeredBy as string) || 'manual';
@@ -51,8 +60,9 @@ export async function trigger(req: Request, res: Response, next: NextFunction): 
 
     await scan.save();
 
-    // In a full implementation, this would enqueue a BullMQ job
-    // await scanQueue.add('process-scan', { scanId: scan._id, repoId });
+    // Run scan inline (no BullMQ/Redis needed in dev mode)
+    // Fire and forget — the scan runs in the background
+    runInlineScan(scan._id.toString()).catch(() => {});
 
     res.status(201).json({
       status: 'success',
