@@ -3,7 +3,7 @@ services:
     name: stack-decay-api
     runtime: node
     plan: free
-    buildCommand: npx -y pnpm@9.15.9 install --frozen-lockfile && npx -y pnpm@9.15.9 --filter @stack-decay/shared build && npx -y pnpm@9.15.9 --filter @stack-decay/server build
+    buildCommand: npx -y pnpm@9.15.9 install --frozen-lockfile --prod=false && npx -y pnpm@9.15.9 --filter @stack-decay/shared build && npx -y pnpm@9.15.9 --filter @stack-decay/server build
     startCommand: node packages/server/dist/server.js
     healthCheckPath: /health
     envVars:
