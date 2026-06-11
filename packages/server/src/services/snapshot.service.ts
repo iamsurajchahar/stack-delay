@@ -15,7 +15,7 @@ export async function captureRepoSnapshot(
 ): Promise<string | null> {
   try {
     // Use the RepoScoreSnapshot model if registered, otherwise create inline
-    let RepoScoreSnapshotModel: mongoose.Model<mongoose.Document>;
+    let RepoScoreSnapshotModel: mongoose.Model<any>;
     try {
       RepoScoreSnapshotModel = mongoose.model('RepoScoreSnapshot');
     } catch {
@@ -76,7 +76,7 @@ export async function capturePackageSnapshot(
   healthData: IHealthSnapshot,
 ): Promise<string | null> {
   try {
-    let PackageHealthModel: mongoose.Model<mongoose.Document>;
+    let PackageHealthModel: mongoose.Model<any>;
     try {
       PackageHealthModel = mongoose.model('PackageHealthHistory');
     } catch {
@@ -129,7 +129,7 @@ export async function getRepoTrend(
   granularity: 'day' | 'week' | 'month' = 'day',
 ): Promise<Array<{ date: string; compositeScore: number; grade: string }>> {
   try {
-    let RepoScoreSnapshotModel: mongoose.Model<mongoose.Document>;
+    let RepoScoreSnapshotModel: mongoose.Model<any>;
     try {
       RepoScoreSnapshotModel = mongoose.model('RepoScoreSnapshot');
     } catch {

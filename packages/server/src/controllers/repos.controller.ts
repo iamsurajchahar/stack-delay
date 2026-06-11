@@ -68,7 +68,7 @@ export async function create(req: Request, res: Response, next: NextFunction): P
 
 export async function getById(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const repo = await repoService.getRepo(req.params.repoId, req.userId!);
+    const repo = await repoService.getRepo(req.params.repoId as string, req.userId!);
     res.json({
       status: 'success',
       data: { repo },
@@ -97,7 +97,7 @@ export async function update(req: Request, res: Response, next: NextFunction): P
     }
 
     const repo = await repoService.updateRepo(
-      req.params.repoId,
+      req.params.repoId as string,
       req.userId!,
       updates as { scanFrequency?: 'manual' | 'daily' | 'weekly' | 'monthly'; isActive?: boolean },
     );
@@ -113,7 +113,7 @@ export async function update(req: Request, res: Response, next: NextFunction): P
 
 export async function remove(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    await repoService.disconnectRepo(req.params.repoId, req.userId!);
+    await repoService.disconnectRepo(req.params.repoId as string, req.userId!);
     res.json({
       status: 'success',
       message: 'Repository disconnected successfully',

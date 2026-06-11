@@ -7,7 +7,7 @@ import { runInlineScan } from '../services/inlineScan.service';
 
 export async function trigger(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { repoId } = req.params;
+    const repoId = req.params.repoId as string;
 
     if (!Types.ObjectId.isValid(repoId)) {
       throw new AppError('Invalid repository ID', 400, 'INVALID_REPO_ID');
@@ -75,7 +75,7 @@ export async function trigger(req: Request, res: Response, next: NextFunction): 
 
 export async function list(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { repoId } = req.params;
+    const repoId = req.params.repoId as string;
 
     if (!Types.ObjectId.isValid(repoId)) {
       throw new AppError('Invalid repository ID', 400, 'INVALID_REPO_ID');
@@ -123,7 +123,7 @@ export async function list(req: Request, res: Response, next: NextFunction): Pro
 
 export async function getLatest(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { repoId } = req.params;
+    const repoId = req.params.repoId as string;
 
     if (!Types.ObjectId.isValid(repoId)) {
       throw new AppError('Invalid repository ID', 400, 'INVALID_REPO_ID');
@@ -160,7 +160,8 @@ export async function getLatest(req: Request, res: Response, next: NextFunction)
 
 export async function getById(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { repoId, scanId } = req.params;
+    const repoId = req.params.repoId as string;
+    const scanId = req.params.scanId as string;
 
     if (!Types.ObjectId.isValid(repoId) || !Types.ObjectId.isValid(scanId)) {
       throw new AppError('Invalid ID parameter', 400, 'INVALID_ID');

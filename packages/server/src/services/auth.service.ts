@@ -108,8 +108,8 @@ export async function findOrCreateUser(
 
 export function generateJWT(userId: string): string {
   return jwt.sign({ sub: userId }, config.JWT_SECRET, {
-    expiresIn: config.JWT_EXPIRES_IN,
-  });
+    expiresIn: config.JWT_EXPIRES_IN as string,
+  } as jwt.SignOptions);
 }
 
 export function verifyJWT(token: string): { sub: string; iat: number; exp: number } {

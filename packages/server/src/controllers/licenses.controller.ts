@@ -51,7 +51,7 @@ function analyzeLicense(spdx: string | null): { category: string; permissive: bo
 
 export async function getRepoLicenses(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { repoId } = req.params;
+    const repoId = req.params.repoId as string;
     if (!Types.ObjectId.isValid(repoId)) {
       throw new AppError('Invalid repository ID', 400, 'INVALID_REPO_ID');
     }

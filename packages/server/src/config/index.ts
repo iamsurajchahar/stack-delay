@@ -13,6 +13,12 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
   JWT_EXPIRES_IN: z.string().default('7d'),
 
+  // Run BullMQ workers inside the API process (for single-service deploys)
+  START_WORKERS: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
+
   MONGODB_URI: z.string().default('mongodb://localhost:27017/stack-decay-score'),
   REDIS_HOST: z.string().default(''),
   REDIS_PORT: z.coerce.number().int().default(6379),

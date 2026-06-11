@@ -44,7 +44,7 @@ const repositorySchema = new Schema<IRepositoryDocument>(
       virtuals: true,
       transform(_doc, ret) {
         ret.id = ret._id?.toString();
-        delete ret.__v;
+        delete (ret as Record<string, unknown>).__v;
       },
     },
   },

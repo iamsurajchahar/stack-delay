@@ -2,7 +2,9 @@ import { Worker, Job } from 'bullmq';
 import { createRedisConnection } from '../config/redis';
 import { QUEUE_NAMES, notificationQueue } from './queues';
 import { evaluateAlerts } from '../services/alert.service';
+import { AlertRule } from '../models/AlertRule';
 import { RepoScoreSnapshot } from '../models/RepoScoreSnapshot';
+import { DependencyScore } from '../models/DependencyScore';
 import { logger } from '../utils/logger';
 
 interface AlertEvalJobData {
@@ -31,22 +33,40 @@ export function createAlertEvalWorker() {
         const currentSnapshot = previousSnapshots[0];
         const previousSnapshot = previousSnapshots.length > 1 ? previousSnapshots[1] : null;
 
-        const triggeredAlerts = await evaluateAlerts(
-          repositoryId,
-          previousSnapshot ? {
+        // Load alert rules for the user
+        const rules = await AlertRule.find({ userId });
+
+        // Build snapshot pair
+        const snapshotPair = {
+          previous: previousSnapshot ? {
             compositeScore: previousSnapshot.compositeScore,
             grade: previousSnapshot.grade,
             vulnerableCount: previousSnapshot.vulnerableCount,
             deprecatedCount: previousSnapshot.deprecatedCount,
             eolAvg: previousSnapshot.eolAvg,
-          } : null,
-          {
+          } as any : null,
+          current: {
             compositeScore,
             grade,
             vulnerableCount: currentSnapshot?.vulnerableCount ?? 0,
             deprecatedCount: currentSnapshot?.deprecatedCount ?? 0,
             eolAvg: currentSnapshot?.eolAvg ?? 100,
-          }
+          } as any,
+        };
+
+        // Build dependency context
+        const depScores = await DependencyScore.find({ scanId });
+        const depContext = {
+          scores: depScores.map((ds: any) => ds.toObject()),
+          healthSnapshots: new Map<string, any>(),
+          packageNames: new Map<string, string>(),
+        };
+
+        const triggeredAlerts = evaluateAlerts(
+          repositoryId,
+          rules.map((r: any) => r.toObject()),
+          snapshotPair,
+          depContext,
         );
 
         if (triggeredAlerts.length === 0) {

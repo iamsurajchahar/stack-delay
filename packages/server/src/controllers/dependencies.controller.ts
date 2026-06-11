@@ -7,7 +7,8 @@ import { CACHE_TTL } from '@stack-decay/shared';
 
 export async function getPackage(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { ecosystem, name } = req.params;
+    const ecosystem = req.params.ecosystem as string;
+    const name = req.params.name as string;
 
     if (!ecosystem || !name) {
       throw new AppError('Ecosystem and package name are required', 400, 'MISSING_PARAMS');
@@ -42,7 +43,8 @@ export async function getPackage(req: Request, res: Response, next: NextFunction
 
 export async function getHealthHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { ecosystem, name } = req.params;
+    const ecosystem = req.params.ecosystem as string;
+    const name = req.params.name as string;
 
     if (!ecosystem || !name) {
       throw new AppError('Ecosystem and package name are required', 400, 'MISSING_PARAMS');
@@ -94,7 +96,8 @@ export async function getHealthHistory(req: Request, res: Response, next: NextFu
 
 export async function getVulnerabilities(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { ecosystem, name } = req.params;
+    const ecosystem = req.params.ecosystem as string;
+    const name = req.params.name as string;
 
     if (!ecosystem || !name) {
       throw new AppError('Ecosystem and package name are required', 400, 'MISSING_PARAMS');

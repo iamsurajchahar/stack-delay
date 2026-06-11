@@ -53,7 +53,7 @@ redisClient.on('close', () => {
   logger.warn('Redis connection closed');
 });
 
-export function createRedisConnection(): Redis {
+export function createRedisConnection(): any {
   const connection = new Redis(buildRedisOptions());
 
   connection.on('error', (err) => {

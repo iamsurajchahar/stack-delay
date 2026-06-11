@@ -8,7 +8,7 @@ import { AppError } from '../middleware/errorHandler.middleware';
 
 export async function getCurrent(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { repoId } = req.params;
+    const repoId = req.params.repoId as string;
 
     if (!Types.ObjectId.isValid(repoId)) {
       throw new AppError('Invalid repository ID', 400, 'INVALID_REPO_ID');
@@ -51,7 +51,7 @@ export async function getCurrent(req: Request, res: Response, next: NextFunction
 
 export async function getHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { repoId } = req.params;
+    const repoId = req.params.repoId as string;
 
     if (!Types.ObjectId.isValid(repoId)) {
       throw new AppError('Invalid repository ID', 400, 'INVALID_REPO_ID');
@@ -108,7 +108,7 @@ export async function getHistory(req: Request, res: Response, next: NextFunction
 
 export async function getDependencyScores(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { repoId } = req.params;
+    const repoId = req.params.repoId as string;
 
     if (!Types.ObjectId.isValid(repoId)) {
       throw new AppError('Invalid repository ID', 400, 'INVALID_REPO_ID');

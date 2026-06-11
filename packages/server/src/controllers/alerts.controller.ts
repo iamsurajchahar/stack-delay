@@ -88,7 +88,7 @@ export async function createRule(req: Request, res: Response, next: NextFunction
 
 export async function updateRule(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { ruleId } = req.params;
+    const ruleId = req.params.ruleId as string;
 
     if (!Types.ObjectId.isValid(ruleId)) {
       throw new AppError('Invalid rule ID', 400, 'INVALID_RULE_ID');
@@ -141,7 +141,7 @@ export async function updateRule(req: Request, res: Response, next: NextFunction
 
 export async function deleteRule(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { ruleId } = req.params;
+    const ruleId = req.params.ruleId as string;
 
     if (!Types.ObjectId.isValid(ruleId)) {
       throw new AppError('Invalid rule ID', 400, 'INVALID_RULE_ID');

@@ -5,10 +5,31 @@ import { config } from './config/index';
 import { connectDatabase, disconnectDatabase } from './config/database';
 import { disconnectRedis } from './config/redis';
 import { logger } from './utils/logger';
+import { createScanWorker } from './workers/scan.worker';
+import { createEnrichWorker } from './workers/enrich.worker';
+import { createScoreWorker } from './workers/score.worker';
+import { createAlertEvalWorker } from './workers/alert-eval.worker';
+import { createNotificationWorker } from './workers/notification.worker';
 
 async function start(): Promise<void> {
   // Connect to MongoDB
   await connectDatabase();
+
+  // On single-service deployments (e.g. Render free tier) run the BullMQ
+  // workers inside the API process instead of a separate worker process
+  const workers = config.START_WORKERS
+    ? [
+        createScanWorker(),
+        createEnrichWorker(),
+        createScoreWorker(),
+        createAlertEvalWorker(),
+        createNotificationWorker(),
+      ]
+    : [];
+
+  if (workers.length > 0) {
+    logger.info({ workerCount: workers.length }, 'In-process workers started');
+  }
 
   // Create HTTP server
   const server = http.createServer(app);
@@ -70,7 +91,8 @@ async function start(): Promise<void> {
         io.close();
         logger.info('Socket.IO server closed');
 
-        // Close database and Redis
+        // Close in-process workers, then database and Redis
+        await Promise.all(workers.map((w) => w.close()));
         await Promise.all([disconnectDatabase(), disconnectRedis()]);
 
         logger.info('All connections closed. Exiting.');

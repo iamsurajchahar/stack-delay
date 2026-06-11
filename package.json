@@ -13,8 +13,12 @@
     "dev:client": "pnpm --filter @stack-decay/client dev",
     "dev:worker": "pnpm --filter @stack-decay/server dev:worker"
   },
+  "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "turbo": "^2.9.16"
   }
 }

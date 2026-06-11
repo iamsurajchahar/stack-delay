@@ -18,7 +18,7 @@ function escapeCSV(val: unknown): string {
 
 export async function exportDependencies(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { repoId } = req.params;
+    const repoId = req.params.repoId as string;
     if (!Types.ObjectId.isValid(repoId)) throw new AppError('Invalid repository ID', 400, 'INVALID_REPO_ID');
 
     const repo = await Repository.findOne({ _id: new Types.ObjectId(repoId), userId: new Types.ObjectId(req.userId!) });
@@ -55,7 +55,7 @@ export async function exportDependencies(req: Request, res: Response, next: Next
 
 export async function exportVulnerabilities(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { repoId } = req.params;
+    const repoId = req.params.repoId as string;
     if (!Types.ObjectId.isValid(repoId)) throw new AppError('Invalid repository ID', 400, 'INVALID_REPO_ID');
 
     const repo = await Repository.findOne({ _id: new Types.ObjectId(repoId), userId: new Types.ObjectId(req.userId!) });
@@ -97,7 +97,7 @@ export async function exportVulnerabilities(req: Request, res: Response, next: N
 
 export async function exportFullReport(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { repoId } = req.params;
+    const repoId = req.params.repoId as string;
     if (!Types.ObjectId.isValid(repoId)) throw new AppError('Invalid repository ID', 400, 'INVALID_REPO_ID');
 
     const repo = await Repository.findOne({ _id: new Types.ObjectId(repoId), userId: new Types.ObjectId(req.userId!) });

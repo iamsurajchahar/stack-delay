@@ -42,9 +42,9 @@ export function createScoreWorker() {
         for (const manifest of scan.manifests) {
           for (const dep of manifest.dependencies) {
             if (dep.packageId) {
-              packageIds.add(dep.packageId);
+              packageIds.add(dep.packageId.toString());
               depMeta.push({
-                packageId: dep.packageId,
+                packageId: dep.packageId.toString(),
                 isDev: dep.isDev,
                 isDirect: dep.isDirect,
               });
@@ -66,7 +66,7 @@ export function createScoreWorker() {
           }
 
           const health = pkg.latestHealth || createDefaultHealth();
-          const scores = scoreDependency(health);
+          const scores = scoreDependency(health, scanId, pkg._id.toString());
 
           const depScore = new DependencyScore({
             scanId,
@@ -106,7 +106,22 @@ export function createScoreWorker() {
           };
         });
 
-        const repoScore = scoreRepository(scoreInputs);
+        const repoScore = scoreRepository(
+          dependencyScores.map(ds => ({
+            id: ds._id?.toString() || '',
+            scanId,
+            packageId: ds.packageId.toString(),
+            maintenanceScore: ds.maintenanceScore,
+            communityScore: ds.communityScore,
+            vulnerabilityScore: ds.vulnerabilityScore,
+            eolScore: ds.eolScore,
+            licenseScore: ds.licenseScore,
+            compositeScore: ds.compositeScore,
+            grade: ds.grade,
+            scoringVersion: ds.scoringVersion || '1.0',
+          })),
+          depMeta.map(m => ({ isDev: m.isDev, isDirect: m.isDirect })),
+        );
 
         // Create repo score snapshot
         const snapshot = await RepoScoreSnapshot.findOneAndUpdate(

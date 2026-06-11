@@ -1,7 +1,7 @@
 import { Worker, Job } from 'bullmq';
 import { createRedisConnection } from '../config/redis';
 import { QUEUE_NAMES, enrichQueue, scoreQueue } from './queues';
-import { ScannerService } from '../services/scanner/scanner.service';
+import { scanRepository, ScanResult } from '../services/scanner/scanner.service';
 import { GitHubService } from '../services/github.service';
 import { Scan } from '../models/Scan';
 import { Repository } from '../models/Repository';
@@ -44,22 +44,21 @@ export function createScanWorker() {
 
         const accessToken = decrypt(user.accessToken);
         const github = new GitHubService(accessToken);
-        const scanner = new ScannerService();
 
         // Get repo tree and detect manifests
-        const tree = await github.getRepoTree(repository.owner, repository.name, repository.defaultBranch);
-        const treePaths = tree.map((item: any) => item.path);
+        const treeResult = await github.getRepoTree(repository.owner, repository.name, repository.defaultBranch);
+        const treePaths = treeResult.tree.map((item) => item.path);
 
-        const manifestResults = await scanner.scanRepository(
+        const manifestResults: ScanResult[] = await scanRepository(
           { owner: repository.owner, name: repository.name, defaultBranch: repository.defaultBranch },
           accessToken
         );
 
-        scan.manifests = manifestResults.map((m) => ({
+        scan.manifests = manifestResults.map((m: ScanResult) => ({
           filePath: m.filePath,
           ecosystem: m.ecosystem,
-          dependencies: m.dependencies.map((d) => ({
-            packageId: '',
+          dependencies: m.dependencies.map((d: any) => ({
+            packageId: null,
             name: d.name,
             versionConstraint: d.versionConstraint,
             resolvedVersion: d.versionConstraint.replace(/[\^~>=<! ]/g, ''),
@@ -67,10 +66,10 @@ export function createScanWorker() {
             isDirect: d.isDirect,
             depth: 0,
           })),
-        }));
+        })) as any;
 
         scan.manifestCount = manifestResults.length;
-        scan.dependencyCount = manifestResults.reduce((sum, m) => sum + m.dependencies.length, 0);
+        scan.dependencyCount = manifestResults.reduce((sum: number, m: ScanResult) => sum + m.dependencies.length, 0);
         await scan.save();
         await job.updateProgress(40);
 
@@ -113,7 +112,7 @@ export function createScanWorker() {
           for (const manifest of scan.manifests) {
             for (const dep of manifest.dependencies) {
               if (dep.name === pkg.name && manifest.ecosystem === pkg.ecosystem) {
-                dep.packageId = dbPkg._id.toString();
+                dep.packageId = dbPkg._id.toString() as any;
               }
             }
           }

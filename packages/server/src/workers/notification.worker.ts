@@ -37,11 +37,14 @@ export function createNotificationWorker() {
 
         try {
           await sendNotification({
+            id: notification._id?.toString() || '',
+            userId,
+            alertRuleId,
             channel: channel as 'email' | 'webhook' | 'slack',
-            to: userId,
             subject,
             body,
-            repositoryId,
+            status: 'pending',
+            createdAt: new Date(),
           });
 
           notification.status = 'sent';
