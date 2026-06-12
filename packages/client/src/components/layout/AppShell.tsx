@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
+import { LoadingSpinner } from '../shared/LoadingSpinner';
 
 export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -36,7 +37,16 @@ export function AppShell() {
           onOpenSidebar={() => setMobileSidebarOpen(true)}
         />
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-          <Outlet />
+          {/* Keeps the shell visible while a lazy-loaded page chunk downloads */}
+          <Suspense
+            fallback={
+              <div className="flex min-h-[400px] items-center justify-center">
+                <LoadingSpinner size="lg" />
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>
