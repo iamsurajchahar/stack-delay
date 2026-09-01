@@ -1,13 +1,12 @@
 import { useAuth } from '../../hooks/useAuth';
 import { Github, CheckCircle, RefreshCw } from 'lucide-react';
-import { githubLogin } from '../../api/auth';
+import { githubLoginUrl } from '../../api/auth';
 
 export function GitHubConnectionPanel() {
   const { user } = useAuth();
 
-  const handleReconnect = async () => {
-    const { url } = await githubLogin();
-    window.location.href = url;
+  const handleReconnect = () => {
+    window.location.href = githubLoginUrl;
   };
 
   return (

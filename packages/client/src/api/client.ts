@@ -1,7 +1,11 @@
 import axios from 'axios';
 
+/** Base URL every API call is made against. Also used for plain browser
+ *  navigations (e.g. the OAuth entry point) that can't go through axios. */
+export const apiBaseUrl: string = import.meta.env.VITE_API_URL || '/api';
+
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL: apiBaseUrl,
   // Fail fast instead of spinning forever if the API is unreachable
   timeout: 30_000,
   headers: {

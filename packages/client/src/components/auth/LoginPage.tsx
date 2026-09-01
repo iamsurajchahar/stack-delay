@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Github, BarChart3, Shield, Bell } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
-import { githubLogin } from '../../api/auth';
+import { githubLoginUrl } from '../../api/auth';
 import { useEffect, useState } from 'react';
 
 export function LoginPage() {
@@ -13,15 +13,9 @@ export function LoginPage() {
     if (isAuthenticated) navigate('/', { replace: true });
   }, [isAuthenticated, navigate]);
 
-  const handleLogin = async () => {
-    setLoading(true);
-    try {
-      const { url } = await githubLogin();
-      window.location.href = url;
-    } catch {
-      setLoading(false);
-    }
-  };
+  // The link navigates straight to the server's OAuth entry point, which 302s
+  // to GitHub — nothing to await, so the browser leaves immediately.
+  const handleLogin = () => setLoading(true);
 
   const features = [
     {
@@ -55,14 +49,16 @@ export function LoginPage() {
 
         {/* Login Card */}
         <div className="rounded-2xl border border-white/10 bg-white/5 p-8 backdrop-blur-sm">
-          <button
+          <a
+            href={githubLoginUrl}
             onClick={handleLogin}
-            disabled={loading}
-            className="flex w-full items-center justify-center gap-3 rounded-xl bg-white px-6 py-4 text-base font-semibold text-gray-900 shadow-sm transition-all hover:bg-gray-100 disabled:opacity-50"
+            className={`flex w-full items-center justify-center gap-3 rounded-xl bg-white px-6 py-4 text-base font-semibold text-gray-900 shadow-sm transition-all hover:bg-gray-100 ${
+              loading ? 'pointer-events-none opacity-50' : ''
+            }`}
           >
             <Github className="h-6 w-6" />
             {loading ? 'Redirecting...' : 'Sign in with GitHub'}
-          </button>
+          </a>
           <p className="mt-4 text-center text-xs text-gray-400">
             We only request read access to your repositories.
           </p>

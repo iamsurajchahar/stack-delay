@@ -13,7 +13,9 @@ export async function githubRedirect(_req: Request, res: Response, next: NextFun
       state: Math.random().toString(36).substring(2),
     });
 
-    res.json({ url: `https://github.com/login/oauth/authorize?${params.toString()}` });
+    // 302 straight to GitHub. The client links here directly instead of
+    // doing an XHR first, so sign-in costs one hop instead of two.
+    res.redirect(`https://github.com/login/oauth/authorize?${params.toString()}`);
   } catch (err) {
     next(err);
   }

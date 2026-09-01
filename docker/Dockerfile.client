@@ -15,6 +15,6 @@ COPY packages/client/ ./packages/client/
 
 RUN pnpm --filter @stack-decay/shared build
 
-EXPOSE 5173
+EXPOSE 3000
 
 CMD ["pnpm", "--filter", "@stack-decay/client", "dev", "--host"]
