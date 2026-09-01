@@ -37,6 +37,8 @@ export interface IScan {
   commitSha: string;
   manifestCount: number;
   dependencyCount: number;
+  /** Coarse 0-100 completion estimate, updated as the scan pipeline runs. */
+  progress: number;
   aggregateScore: number | null;
   aggregateGrade: string | null;
   errorMessage: string | null;

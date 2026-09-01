@@ -138,15 +138,14 @@ export async function getLatest(req: Request, res: Response, next: NextFunction)
       throw new AppError('Repository not found', 404, 'REPO_NOT_FOUND');
     }
 
-    const scan = await Scan.findOne({
-      repositoryId: repo._id,
-      status: 'completed',
-    })
+    // Any status — the onboarding progress view polls this to follow a running scan
+    const scan = await Scan.findOne({ repositoryId: repo._id })
       .sort({ createdAt: -1 })
+      .select('-manifests')
       .lean();
 
     if (!scan) {
-      throw new AppError('No completed scans found', 404, 'NO_COMPLETED_SCANS');
+      throw new AppError('No scans found', 404, 'NO_SCANS_FOUND');
     }
 
     res.json({

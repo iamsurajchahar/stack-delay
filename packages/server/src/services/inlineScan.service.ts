@@ -1,3 +1,4 @@
+import { Types } from 'mongoose';
 import { Scan } from '../models/Scan';
 import { Repository } from '../models/Repository';
 import { Package } from '../models/Package';
@@ -6,12 +7,92 @@ import { RepoScoreSnapshot } from '../models/RepoScoreSnapshot';
 import { User } from '../models/User';
 import { decrypt } from '../utils/encryption';
 import { scanRepository } from './scanner/scanner.service';
-import { enrichPackage } from './enrichment/enrichment.orchestrator';
+import { enrichPackageDetailed } from './enrichment/enrichment.orchestrator';
 import { scoreDependency, scoreRepository } from './scoring/scoring.service';
 import { logger } from '../utils/logger';
 import type { IHealthSnapshot } from '@stack-decay/shared';
 import type { OsvVulnerability } from './enrichment/osv.client';
-import * as osv from './enrichment/osv.client';
+
+/**
+ * How many packages are enriched at once. Each package fans out to several
+ * upstream APIs, so this is the main lever on how long a scan takes; keep it
+ * high enough to hide network latency, low enough to stay clear of GitHub's
+ * secondary rate limits.
+ */
+const ENRICH_CONCURRENCY = 8;
+
+/** Progress percentages for each stage, so the UI can show real movement. */
+const PROGRESS_SCANNING = 10;
+const PROGRESS_ENRICH_START = 20;
+const PROGRESS_ENRICH_END = 85;
+const PROGRESS_SCORING = 90;
+
+/** Don't write a progress update to Mongo more often than this. */
+const PROGRESS_WRITE_INTERVAL_MS = 1000;
+
+interface UniquePackage {
+  ecosystem: string;
+  name: string;
+  version: string;
+}
+
+/**
+ * Run `fn` over every item with a bounded number of tasks in flight.
+ * Results come back in input order.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index], index);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
+/** Statuses that mean a scan is still in flight. */
+const IN_FLIGHT_STATUSES = ['pending', 'scanning', 'enriching', 'scoring'];
+
+/** How long an untouched in-flight scan may sit before startup treats it as dead. */
+const STALE_SCAN_AGE_MS = 15 * 60 * 1000;
+
+/**
+ * Fail off scans left mid-flight by a previous process. Inline scans don't
+ * survive a restart, so without this they sit at "pending" forever and the
+ * progress UI polls them indefinitely.
+ */
+export async function reapStaleScans(): Promise<number> {
+  const result = await Scan.updateMany(
+    {
+      status: { $in: IN_FLIGHT_STATUSES },
+      createdAt: { $lt: new Date(Date.now() - STALE_SCAN_AGE_MS) },
+    },
+    {
+      $set: {
+        status: 'failed',
+        progress: 0,
+        errorMessage: 'Scan was interrupted and did not finish',
+        completedAt: new Date(),
+      },
+    },
+  );
+
+  if (result.modifiedCount > 0) {
+    logger.warn({ count: result.modifiedCount }, 'Marked interrupted scans as failed');
+  }
+
+  return result.modifiedCount;
+}
 
 /**
  * Run a full scan pipeline inline (no BullMQ/Redis required).
@@ -24,15 +105,40 @@ export async function runInlineScan(scanId: string): Promise<void> {
   const scan = await Scan.findById(scanId);
   if (!scan) throw new Error(`Scan ${scanId} not found`);
 
+  // Anything that goes wrong from here on has to land on the scan document —
+  // a scan left at "pending" makes the progress UI spin forever.
   const repository = await Repository.findById(scan.repositoryId);
-  if (!repository) throw new Error(`Repository not found`);
+  const user = repository ? await User.findById(repository.userId) : null;
 
-  const user = await User.findById(repository.userId);
-  if (!user) throw new Error(`User not found`);
+  if (!repository || !user) {
+    const reason = !repository ? 'Repository not found' : 'User not found';
+    log.error({ reason }, 'Inline scan cannot start');
+    scan.status = 'failed';
+    scan.progress = 0;
+    scan.errorMessage = reason;
+    scan.completedAt = new Date();
+    await scan.save();
+    return;
+  }
+
+  // Progress is written straight to the collection rather than through the
+  // in-memory document, which is being rebuilt while enrichment runs.
+  let lastProgressWriteAt = 0;
+  const reportProgress = async (progress: number, force = false): Promise<void> => {
+    const now = Date.now();
+    if (!force && now - lastProgressWriteAt < PROGRESS_WRITE_INTERVAL_MS) return;
+    lastProgressWriteAt = now;
+    try {
+      await Scan.updateOne({ _id: scan._id }, { $set: { progress: Math.round(progress) } });
+    } catch {
+      // Progress reporting must never break a scan
+    }
+  };
 
   try {
     // Stage 1: Scanning — detect manifests and parse dependencies
     scan.status = 'scanning';
+    scan.progress = PROGRESS_SCANNING;
     scan.startedAt = new Date();
     await scan.save();
 
@@ -65,10 +171,11 @@ export async function runInlineScan(scanId: string): Promise<void> {
 
     // Stage 2: Enriching — fetch real data from registries, OSV, Libraries.io, GitHub advisories
     scan.status = 'enriching';
+    scan.progress = PROGRESS_ENRICH_START;
     await scan.save();
 
     // Collect unique packages with their version info
-    const uniquePackages = new Map<string, { ecosystem: string; name: string; version: string }>();
+    const uniquePackages = new Map<string, UniquePackage>();
     for (const manifest of manifestResults) {
       for (const dep of manifest.dependencies) {
         const key = `${manifest.ecosystem}:${dep.name}`;
@@ -82,29 +189,32 @@ export async function runInlineScan(scanId: string): Promise<void> {
       }
     }
 
-    // Enrich each package and store in DB
+    // Enrich packages concurrently — this is where nearly all of the wall time goes
     const healthSnapshots = new Map<string, IHealthSnapshot>();
+    const packageIdsByKey = new Map<string, Types.ObjectId>();
+    const entries = [...uniquePackages.entries()];
+    let enrichedCount = 0;
 
-    for (const [key, pkg] of uniquePackages) {
-      // Call real enrichment orchestrator
+    await mapWithConcurrency(entries, ENRICH_CONCURRENCY, async ([key, pkg]) => {
+      // Call the real enrichment orchestrator. It returns the vulnerabilities it
+      // already fetched, so we don't query OSV a second time here.
       let healthSnapshot: IHealthSnapshot | null = null;
+      let vulns: OsvVulnerability[] = [];
+
       try {
-        healthSnapshot = await enrichPackage({
+        const enriched = await enrichPackageDetailed({
           ecosystem: pkg.ecosystem,
           name: pkg.name,
           version: pkg.version,
           githubToken: accessToken,
         });
+
+        if (enriched) {
+          healthSnapshot = enriched.snapshot;
+          vulns = enriched.vulnerabilities;
+        }
       } catch (err: any) {
         log.warn({ err: err.message, pkg: pkg.name }, 'Enrichment failed for package, using defaults');
-      }
-
-      // Also fetch vulnerabilities directly for storing on the Package model
-      let vulns: OsvVulnerability[] = [];
-      try {
-        vulns = await osv.queryVulnerabilities(pkg.ecosystem, pkg.name, pkg.version);
-      } catch {
-        // Already handled by enrichment orchestrator, this is a fallback
       }
 
       // Upsert package in DB with enriched data
@@ -153,14 +263,11 @@ export async function runInlineScan(scanId: string): Promise<void> {
         { upsert: true, new: true },
       );
 
-      // Link packageId in scan manifests
-      for (const manifest of scan.manifests) {
-        for (const dep of manifest.dependencies) {
-          if (dep.name === pkg.name && manifest.ecosystem === pkg.ecosystem) {
-            dep.packageId = dbPkg._id;
-          }
-        }
-      }
+      packageIdsByKey.set(key, dbPkg._id as Types.ObjectId);
+
+      enrichedCount++;
+      const span = PROGRESS_ENRICH_END - PROGRESS_ENRICH_START;
+      await reportProgress(PROGRESS_ENRICH_START + (enrichedCount / entries.length) * span);
 
       log.debug(
         {
@@ -170,12 +277,24 @@ export async function runInlineScan(scanId: string): Promise<void> {
         },
         'Package enriched',
       );
+    });
+
+    // Link packageIds in scan manifests
+    for (const manifest of scan.manifests) {
+      for (const dep of manifest.dependencies) {
+        const packageId = packageIdsByKey.get(`${manifest.ecosystem}:${dep.name}`);
+        if (packageId) {
+          dep.packageId = packageId;
+        }
+      }
     }
 
+    scan.progress = PROGRESS_ENRICH_END;
     await scan.save();
 
     // Stage 3: Scoring — use real scoring service with enriched health data
     scan.status = 'scoring';
+    scan.progress = PROGRESS_SCORING;
     await scan.save();
 
     const depScores: Array<{
@@ -290,6 +409,7 @@ export async function runInlineScan(scanId: string): Promise<void> {
 
     // Mark scan complete
     scan.status = 'completed';
+    scan.progress = 100;
     scan.aggregateScore = avgScore;
     scan.aggregateGrade = grade;
     scan.completedAt = new Date();
@@ -310,6 +430,7 @@ export async function runInlineScan(scanId: string): Promise<void> {
   } catch (error: any) {
     log.error({ error: error.message }, 'Inline scan failed');
     scan.status = 'failed';
+    scan.progress = 0;
     scan.errorMessage = error.message || 'Unknown error during scan';
     scan.completedAt = new Date();
     await scan.save();

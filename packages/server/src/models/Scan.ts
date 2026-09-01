@@ -7,6 +7,7 @@ export interface IScanDocument extends Document {
   commitSha: string;
   manifestCount: number;
   dependencyCount: number;
+  progress: number;
   aggregateScore: number | null;
   aggregateGrade: string | null;
   errorMessage: string | null;
@@ -67,6 +68,7 @@ const scanSchema = new Schema<IScanDocument>(
     commitSha: { type: String, default: '' },
     manifestCount: { type: Number, default: 0 },
     dependencyCount: { type: Number, default: 0 },
+    progress: { type: Number, default: 0 },
     aggregateScore: { type: Number, default: null },
     aggregateGrade: { type: String, default: null },
     errorMessage: { type: String, default: null },

@@ -13,8 +13,10 @@ interface ScanState {
   name: string;
   status: 'pending' | 'scanning' | 'enriching' | 'scoring' | 'completed' | 'failed';
   progress: number;
+  dependencyCount: number;
 }
 
+/** Fallback bar position for servers that don't report a progress percentage. */
 const STATUS_PROGRESS: Record<string, number> = {
   pending: 10,
   scanning: 30,
@@ -24,6 +26,8 @@ const STATUS_PROGRESS: Record<string, number> = {
   failed: 0,
 };
 
+const POLL_INTERVAL_MS = 1500;
+
 export function InitialScanProgress({ repoIds, repos, onComplete }: Props) {
   const [scans, setScans] = useState<ScanState[]>(
     repoIds.map((id, i) => ({
@@ -31,6 +35,7 @@ export function InitialScanProgress({ repoIds, repos, onComplete }: Props) {
       name: repos?.[i]?.full_name || repos?.[i]?.name || `Repository ${i + 1}`,
       status: 'pending',
       progress: 10,
+      dependencyCount: 0,
     }))
   );
   const intervalsRef = useRef<ReturnType<typeof setInterval>[]>([]);
@@ -49,11 +54,23 @@ export function InitialScanProgress({ repoIds, repos, onComplete }: Props) {
           if (!scan) return;
 
           const status = scan.status as ScanState['status'];
-          const progress = STATUS_PROGRESS[status] ?? 10;
+          // The server reports a real percentage while enriching; fall back to
+          // the coarse per-status positions if it isn't there.
+          const reported = typeof scan.progress === 'number' ? scan.progress : 0;
+          const progress = reported > 0 ? reported : STATUS_PROGRESS[status] ?? 10;
+          const dependencyCount = scan.dependencyCount ?? 0;
 
           setScans((prev) =>
             prev.map((s, i) =>
-              i === idx ? { ...s, status, progress } : s
+              i === idx
+                ? {
+                    ...s,
+                    status,
+                    dependencyCount,
+                    // Never let the bar jump backwards between polls
+                    progress: status === 'failed' ? 0 : Math.max(s.progress, progress),
+                  }
+                : s
             )
           );
 
@@ -63,7 +80,7 @@ export function InitialScanProgress({ repoIds, repos, onComplete }: Props) {
         } catch {
           // Silently continue polling on transient errors
         }
-      }, 2500);
+      }, POLL_INTERVAL_MS);
 
       intervals.push(interval);
     });
@@ -72,13 +89,25 @@ export function InitialScanProgress({ repoIds, repos, onComplete }: Props) {
     return () => intervals.forEach(clearInterval);
   }, [repoIds]);
 
-  const statusLabels: Record<string, string> = {
-    pending: 'Waiting...',
-    scanning: 'Scanning manifests...',
-    enriching: 'Enriching dependencies...',
-    scoring: 'Computing scores...',
-    completed: 'Complete',
-    failed: 'Failed',
+  const statusLabel = (scan: ScanState): string => {
+    switch (scan.status) {
+      case 'pending':
+        return 'Waiting...';
+      case 'scanning':
+        return 'Scanning manifests...';
+      case 'enriching':
+        return scan.dependencyCount > 0
+          ? `Checking ${scan.dependencyCount} dependencies...`
+          : 'Enriching dependencies...';
+      case 'scoring':
+        return 'Computing scores...';
+      case 'completed':
+        return 'Complete';
+      case 'failed':
+        return 'Failed';
+      default:
+        return '';
+    }
   };
 
   return (
@@ -100,10 +129,10 @@ export function InitialScanProgress({ repoIds, repos, onComplete }: Props) {
                   <CheckCircle className="w-4 h-4 text-green-500" />
                 ) : scan.status === 'failed' ? (
                   <AlertCircle className="w-4 h-4 text-red-500" />
-                ) : scan.status !== 'pending' ? (
+                ) : (
                   <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
-                ) : null}
-                <span className="text-xs text-gray-500 dark:text-gray-400">{statusLabels[scan.status]}</span>
+                )}
+                <span className="text-xs text-gray-500 dark:text-gray-400">{statusLabel(scan)}</span>
               </div>
             </div>
             <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden dark:bg-gray-700">

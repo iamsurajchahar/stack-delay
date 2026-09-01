@@ -44,7 +44,9 @@ export function useScanStatus(repoId: string) {
         if (!scan) return;
 
         const scanStatus = scan.status as ScanProgress['status'];
-        const progress = STATUS_PROGRESS[scanStatus] ?? 0;
+        // Prefer the real percentage the server reports while enriching
+        const reported = typeof scan.progress === 'number' ? scan.progress : 0;
+        const progress = reported > 0 ? reported : STATUS_PROGRESS[scanStatus] ?? 0;
 
         setState({ status: scanStatus, progress, error: null });
 

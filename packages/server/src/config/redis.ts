@@ -4,6 +4,9 @@ import { logger } from '../utils/logger';
 
 const isRedisDisabled = !config.REDIS_HOST;
 
+/** False when REDIS_HOST is unset — callers fall back to in-process behaviour. */
+export const isRedisEnabled = !isRedisDisabled;
+
 function buildRedisOptions(): {
   host: string;
   port: number;

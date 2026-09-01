@@ -10,10 +10,14 @@ import { createEnrichWorker } from './workers/enrich.worker';
 import { createScoreWorker } from './workers/score.worker';
 import { createAlertEvalWorker } from './workers/alert-eval.worker';
 import { createNotificationWorker } from './workers/notification.worker';
+import { reapStaleScans } from './services/inlineScan.service';
 
 async function start(): Promise<void> {
   // Connect to MongoDB
   await connectDatabase();
+
+  // Clear out scans a previous process left mid-flight
+  await reapStaleScans().catch((err) => logger.error({ err }, 'Failed to reap stale scans'));
 
   // On single-service deployments (e.g. Render free tier) run the BullMQ
   // workers inside the API process instead of a separate worker process

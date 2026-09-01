@@ -6,10 +6,10 @@ import * as pypi from './pypi.client';
 import * as rubygems from './rubygems.client';
 import * as crates from './crates.client';
 import * as osv from './osv.client';
-import * as endoflife from './endoflife.client';
 import * as librariesIo from './libraries-io.client';
 import * as githubAdvisory from './github-advisory.client';
 import * as githubRepo from './github-repo.client';
+import type { OsvVulnerability } from './osv.client';
 
 interface EnrichmentInput {
   ecosystem: string;
@@ -17,6 +17,21 @@ interface EnrichmentInput {
   version?: string;
   repoUrl?: string;
   githubToken?: string;
+}
+
+/** Everything one package lookup produces, so callers never re-query a source. */
+export interface EnrichmentResult {
+  snapshot: IHealthSnapshot;
+  vulnerabilities: OsvVulnerability[];
+}
+
+/** Raw registry payloads, kept apart from the snapshot so they can be applied in a fixed order. */
+interface RegistryData {
+  npmPackage?: npmRegistry.NpmPackageInfo | null;
+  npmDownloads?: npmRegistry.NpmDownloadCount | null;
+  pypiPackage?: pypi.PypiPackageInfo | null;
+  gem?: rubygems.RubyGemInfo | null;
+  crate?: crates.CrateInfo | null;
 }
 
 /** Circuit breaker state per client */
@@ -88,15 +103,22 @@ async function safeCall<T>(
 
 /**
  * Enrich a package by coordinating calls to all relevant enrichment clients.
- * Uses Redis cache to avoid redundant API calls.
+ * Uses the cache to avoid redundant API calls.
  *
- * Returns a combined IHealthSnapshot or null if enrichment completely fails.
+ * The independent sources (registry, OSV, Libraries.io, GitHub advisories) are
+ * fetched concurrently and only then folded into the snapshot, in a fixed order,
+ * so later sources still override earlier ones the way they always did.
+ *
+ * Returns the snapshot plus the raw vulnerability list, or null if enrichment
+ * completely fails.
  */
-export async function enrichPackage(input: EnrichmentInput): Promise<IHealthSnapshot | null> {
-  const cacheKey = `enrich:${input.ecosystem}:${input.name}:${input.version || 'latest'}`;
+export async function enrichPackageDetailed(
+  input: EnrichmentInput,
+): Promise<EnrichmentResult | null> {
+  const cacheKey = `enrich:v2:${input.ecosystem}:${input.name}:${input.version || 'latest'}`;
 
   // Check cache first
-  const cached = await cacheGet<IHealthSnapshot>(cacheKey);
+  const cached = await cacheGet<EnrichmentResult>(cacheKey);
   if (cached) {
     logger.debug({ ecosystem: input.ecosystem, name: input.name }, 'Enrichment cache hit');
     return cached;
@@ -104,44 +126,41 @@ export async function enrichPackage(input: EnrichmentInput): Promise<IHealthSnap
 
   logger.info({ ecosystem: input.ecosystem, name: input.name }, 'Enriching package');
 
-  // Build the health snapshot by calling relevant clients
   const snapshot = createEmptySnapshot();
 
-  // Ecosystem-specific registry calls
-  await enrichFromRegistry(input, snapshot);
+  const [registryData, vulns, libInfo, advisories] = await Promise.all([
+    fetchFromRegistry(input),
+    fetchVulnerabilities(input),
+    fetchFromLibrariesIo(input),
+    fetchFromGitHubAdvisories(input),
+  ]);
 
-  // Vulnerability data (works for all ecosystems)
-  await enrichVulnerabilities(input, snapshot);
+  applyRegistry(input, snapshot, registryData);
+  applyVulnerabilities(snapshot, vulns);
+  applyLibrariesIo(snapshot, libInfo);
+  applyGitHubAdvisories(snapshot, advisories);
 
-  // Libraries.io for community/adoption metrics
-  await enrichFromLibrariesIo(input, snapshot);
+  // Needs the repository URL the registry lookup above may have discovered,
+  // so this one cannot join the batch.
+  const repoStats = await fetchFromGitHubRepo(input);
+  applyGitHubRepo(snapshot, repoStats);
 
-  // GitHub advisories
-  await enrichFromGitHubAdvisories(input, snapshot);
+  applyLicenseRiskTier(snapshot);
 
-  // GitHub repo stats (stars, forks, issues, contributors, commits)
-  await enrichFromGitHubRepo(input, snapshot);
-
-  // Derive license risk tier from SPDX
-  if (snapshot.license.spdx) {
-    const spdxLower = snapshot.license.spdx.toLowerCase();
-    const permissive = ['mit', 'apache-2.0', 'bsd-2-clause', 'bsd-3-clause', 'isc', 'unlicense', '0bsd', 'cc0-1.0'];
-    const weakCopyleft = ['lgpl-2.1', 'lgpl-3.0', 'mpl-2.0', 'epl-2.0', 'epl-1.0'];
-    const strongCopyleft = ['gpl-2.0', 'gpl-3.0', 'agpl-3.0'];
-
-    if (permissive.some(l => spdxLower.includes(l))) {
-      snapshot.license.riskTier = 'low';
-    } else if (weakCopyleft.some(l => spdxLower.includes(l))) {
-      snapshot.license.riskTier = 'medium';
-    } else if (strongCopyleft.some(l => spdxLower.includes(l))) {
-      snapshot.license.riskTier = 'high';
-    }
-  }
+  const result: EnrichmentResult = { snapshot, vulnerabilities: vulns || [] };
 
   // Store in cache
-  await cacheSet(cacheKey, snapshot, CACHE_TTL.HEALTH_SNAPSHOT);
+  await cacheSet(cacheKey, result, CACHE_TTL.HEALTH_SNAPSHOT);
 
-  return snapshot;
+  return result;
+}
+
+/**
+ * Enrich a package and return just its health snapshot.
+ */
+export async function enrichPackage(input: EnrichmentInput): Promise<IHealthSnapshot | null> {
+  const result = await enrichPackageDetailed(input);
+  return result ? result.snapshot : null;
 }
 
 function createEmptySnapshot(): IHealthSnapshot {
@@ -182,164 +201,185 @@ function createEmptySnapshot(): IHealthSnapshot {
   };
 }
 
-async function enrichFromRegistry(
-  input: EnrichmentInput,
-  snapshot: IHealthSnapshot,
-): Promise<void> {
+async function fetchFromRegistry(input: EnrichmentInput): Promise<RegistryData> {
   switch (input.ecosystem) {
     case Ecosystem.npm: {
-      const [pkgInfo, downloads] = await Promise.all([
+      const [npmPackage, npmDownloads] = await Promise.all([
         safeCall('npm-registry', () => npmRegistry.getPackageInfo(input.name)),
         safeCall('npm-downloads', () => npmRegistry.getDownloadCount(input.name)),
       ]);
-
-      if (pkgInfo) {
-        snapshot.license.spdx = pkgInfo.license || '';
-        snapshot.maintenance.releasesLastYear = pkgInfo.releasesLastYear;
-        snapshot.maintenance.daysSinceLastRelease = pkgInfo.daysSinceLastRelease;
-        if (pkgInfo.isDeprecated) {
-          snapshot.eol.isDeprecated = true;
-        }
-        // Capture repo URL for GitHub stats enrichment
-        if (pkgInfo.repository && !input.repoUrl) {
-          input.repoUrl = pkgInfo.repository;
-        }
-      }
-
-      if (downloads) {
-        snapshot.community.downloadsLastWeek = downloads.downloads;
-      }
-      break;
+      return { npmPackage, npmDownloads };
     }
     case Ecosystem.pypi: {
-      const pkgInfo = await safeCall('pypi', () => pypi.getPackageInfo(input.name));
-      if (pkgInfo) {
-        snapshot.license.spdx = pkgInfo.license || '';
-      }
-      break;
+      const pypiPackage = await safeCall('pypi', () => pypi.getPackageInfo(input.name));
+      return { pypiPackage };
     }
     case Ecosystem.rubygems: {
-      const gemInfo = await safeCall('rubygems', () => rubygems.getGemInfo(input.name));
-      if (gemInfo) {
-        snapshot.license.spdx = gemInfo.licenses[0] || '';
-        snapshot.community.downloadsLastWeek = gemInfo.downloads;
-      }
-      break;
+      const gem = await safeCall('rubygems', () => rubygems.getGemInfo(input.name));
+      return { gem };
     }
     case Ecosystem.cargo: {
-      const crateInfo = await safeCall('crates', () => crates.getCrateInfo(input.name));
-      if (crateInfo) {
-        snapshot.license.spdx = crateInfo.license || '';
-        snapshot.community.downloadsLastWeek = crateInfo.downloads;
-      }
-      break;
+      const crate = await safeCall('crates', () => crates.getCrateInfo(input.name));
+      return { crate };
     }
     // For go, maven, nuget, composer: we rely on Libraries.io and vulnerability data
     default:
-      break;
+      return {};
   }
 }
 
-async function enrichVulnerabilities(
+function applyRegistry(
   input: EnrichmentInput,
   snapshot: IHealthSnapshot,
-): Promise<void> {
-  const vulns = await safeCall('osv', () =>
+  data: RegistryData,
+): void {
+  if (data.npmPackage) {
+    const pkgInfo = data.npmPackage;
+    snapshot.license.spdx = pkgInfo.license || '';
+    snapshot.maintenance.releasesLastYear = pkgInfo.releasesLastYear;
+    snapshot.maintenance.daysSinceLastRelease = pkgInfo.daysSinceLastRelease;
+    if (pkgInfo.isDeprecated) {
+      snapshot.eol.isDeprecated = true;
+    }
+    // Capture repo URL for GitHub stats enrichment
+    if (pkgInfo.repository && !input.repoUrl) {
+      input.repoUrl = pkgInfo.repository;
+    }
+  }
+
+  if (data.npmDownloads) {
+    snapshot.community.downloadsLastWeek = data.npmDownloads.downloads;
+  }
+
+  if (data.pypiPackage) {
+    snapshot.license.spdx = data.pypiPackage.license || '';
+  }
+
+  if (data.gem) {
+    snapshot.license.spdx = data.gem.licenses[0] || '';
+    snapshot.community.downloadsLastWeek = data.gem.downloads;
+  }
+
+  if (data.crate) {
+    snapshot.license.spdx = data.crate.license || '';
+    snapshot.community.downloadsLastWeek = data.crate.downloads;
+  }
+}
+
+async function fetchVulnerabilities(
+  input: EnrichmentInput,
+): Promise<OsvVulnerability[] | null> {
+  return safeCall('osv', () =>
     osv.queryVulnerabilities(input.ecosystem, input.name, input.version),
   );
-
-  if (vulns && vulns.length > 0) {
-    snapshot.vulnerability.totalCveCount = vulns.length;
-    snapshot.vulnerability.openCveCount = vulns.length; // All returned vulns are assumed open
-
-    let criticalCount = 0;
-    let highCount = 0;
-
-    for (const vuln of vulns) {
-      if (vuln.severity === 'critical') criticalCount++;
-      if (vuln.severity === 'high') highCount++;
-    }
-
-    snapshot.vulnerability.criticalCveCount = criticalCount;
-    snapshot.vulnerability.highCveCount = highCount;
-  }
 }
 
-async function enrichFromLibrariesIo(
-  input: EnrichmentInput,
+function applyVulnerabilities(
   snapshot: IHealthSnapshot,
-): Promise<void> {
-  const libInfo = await safeCall('libraries-io', () =>
+  vulns: OsvVulnerability[] | null,
+): void {
+  if (!vulns || vulns.length === 0) return;
+
+  snapshot.vulnerability.totalCveCount = vulns.length;
+  snapshot.vulnerability.openCveCount = vulns.length; // All returned vulns are assumed open
+
+  let criticalCount = 0;
+  let highCount = 0;
+
+  for (const vuln of vulns) {
+    if (vuln.severity === 'critical') criticalCount++;
+    if (vuln.severity === 'high') highCount++;
+  }
+
+  snapshot.vulnerability.criticalCveCount = criticalCount;
+  snapshot.vulnerability.highCveCount = highCount;
+}
+
+async function fetchFromLibrariesIo(
+  input: EnrichmentInput,
+): Promise<librariesIo.LibrariesIoInfo | null> {
+  return safeCall('libraries-io', () =>
     librariesIo.getPackageInfo(input.ecosystem, input.name),
   );
+}
 
-  if (libInfo) {
-    snapshot.community.dependentReposCount = libInfo.dependentReposCount;
+function applyLibrariesIo(
+  snapshot: IHealthSnapshot,
+  libInfo: librariesIo.LibrariesIoInfo | null,
+): void {
+  if (!libInfo) return;
 
-    if (libInfo.latestReleasePublishedAt) {
-      const releaseDate = new Date(libInfo.latestReleasePublishedAt);
-      const now = new Date();
-      const daysSinceRelease = Math.floor(
-        (now.getTime() - releaseDate.getTime()) / (1000 * 60 * 60 * 24),
-      );
-      snapshot.maintenance.daysSinceLastRelease = Math.max(0, daysSinceRelease);
-    }
+  snapshot.community.dependentReposCount = libInfo.dependentReposCount;
+
+  if (libInfo.latestReleasePublishedAt) {
+    const releaseDate = new Date(libInfo.latestReleasePublishedAt);
+    const now = new Date();
+    const daysSinceRelease = Math.floor(
+      (now.getTime() - releaseDate.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    snapshot.maintenance.daysSinceLastRelease = Math.max(0, daysSinceRelease);
   }
 }
 
-async function enrichFromGitHubAdvisories(
+async function fetchFromGitHubAdvisories(
   input: EnrichmentInput,
-  snapshot: IHealthSnapshot,
-): Promise<void> {
-  if (!input.githubToken) return;
+): Promise<githubAdvisory.GitHubAdvisory[] | null> {
+  if (!input.githubToken) return null;
 
-  const advisories = await safeCall('github-advisory', () =>
+  return safeCall('github-advisory', () =>
     githubAdvisory.getAdvisories(input.ecosystem, input.name, input.githubToken),
   );
-
-  if (advisories && advisories.length > 0) {
-    // Merge with OSV data - avoid double counting by tracking unique IDs
-    // GitHub advisories may overlap with OSV entries, so take the max
-    const totalFromAdvisories = advisories.filter((a) => !a.withdrawnAt).length;
-
-    if (totalFromAdvisories > snapshot.vulnerability.totalCveCount) {
-      snapshot.vulnerability.totalCveCount = totalFromAdvisories;
-      snapshot.vulnerability.openCveCount = totalFromAdvisories;
-    }
-
-    let criticalCount = 0;
-    let highCount = 0;
-
-    for (const advisory of advisories) {
-      if (advisory.withdrawnAt) continue;
-      if (advisory.severity === 'critical') criticalCount++;
-      if (advisory.severity === 'high') highCount++;
-    }
-
-    snapshot.vulnerability.criticalCveCount = Math.max(
-      snapshot.vulnerability.criticalCveCount,
-      criticalCount,
-    );
-    snapshot.vulnerability.highCveCount = Math.max(
-      snapshot.vulnerability.highCveCount,
-      highCount,
-    );
-  }
 }
 
-async function enrichFromGitHubRepo(
-  input: EnrichmentInput,
+function applyGitHubAdvisories(
   snapshot: IHealthSnapshot,
-): Promise<void> {
-  // We need a repository URL to look up GitHub stats.
-  // Try to get it from the repoUrl input or from npm registry data (already set on snapshot).
-  const repoUrl = input.repoUrl;
-  if (!repoUrl) return;
+  advisories: githubAdvisory.GitHubAdvisory[] | null,
+): void {
+  if (!advisories || advisories.length === 0) return;
 
-  const stats = await safeCall('github-repo', () =>
-    githubRepo.getRepoStats(repoUrl, input.githubToken),
+  // Merge with OSV data - avoid double counting by tracking unique IDs
+  // GitHub advisories may overlap with OSV entries, so take the max
+  const totalFromAdvisories = advisories.filter((a) => !a.withdrawnAt).length;
+
+  if (totalFromAdvisories > snapshot.vulnerability.totalCveCount) {
+    snapshot.vulnerability.totalCveCount = totalFromAdvisories;
+    snapshot.vulnerability.openCveCount = totalFromAdvisories;
+  }
+
+  let criticalCount = 0;
+  let highCount = 0;
+
+  for (const advisory of advisories) {
+    if (advisory.withdrawnAt) continue;
+    if (advisory.severity === 'critical') criticalCount++;
+    if (advisory.severity === 'high') highCount++;
+  }
+
+  snapshot.vulnerability.criticalCveCount = Math.max(
+    snapshot.vulnerability.criticalCveCount,
+    criticalCount,
   );
+  snapshot.vulnerability.highCveCount = Math.max(
+    snapshot.vulnerability.highCveCount,
+    highCount,
+  );
+}
 
+async function fetchFromGitHubRepo(
+  input: EnrichmentInput,
+): Promise<githubRepo.GitHubRepoStats | null> {
+  // We need a repository URL to look up GitHub stats.
+  // Try to get it from the repoUrl input or from npm registry data (applied above).
+  const repoUrl = input.repoUrl;
+  if (!repoUrl) return null;
+
+  return safeCall('github-repo', () => githubRepo.getRepoStats(repoUrl, input.githubToken));
+}
+
+function applyGitHubRepo(
+  snapshot: IHealthSnapshot,
+  stats: githubRepo.GitHubRepoStats | null,
+): void {
   if (!stats) return;
 
   // Populate community metrics
@@ -358,5 +398,23 @@ async function enrichFromGitHubRepo(
   // Update archived status from GitHub
   if (stats.isArchived) {
     snapshot.eol.isArchived = true;
+  }
+}
+
+/** Derive license risk tier from SPDX */
+function applyLicenseRiskTier(snapshot: IHealthSnapshot): void {
+  if (!snapshot.license.spdx) return;
+
+  const spdxLower = snapshot.license.spdx.toLowerCase();
+  const permissive = ['mit', 'apache-2.0', 'bsd-2-clause', 'bsd-3-clause', 'isc', 'unlicense', '0bsd', 'cc0-1.0'];
+  const weakCopyleft = ['lgpl-2.1', 'lgpl-3.0', 'mpl-2.0', 'epl-2.0', 'epl-1.0'];
+  const strongCopyleft = ['gpl-2.0', 'gpl-3.0', 'agpl-3.0'];
+
+  if (permissive.some((l) => spdxLower.includes(l))) {
+    snapshot.license.riskTier = 'low';
+  } else if (weakCopyleft.some((l) => spdxLower.includes(l))) {
+    snapshot.license.riskTier = 'medium';
+  } else if (strongCopyleft.some((l) => spdxLower.includes(l))) {
+    snapshot.license.riskTier = 'high';
   }
 }
