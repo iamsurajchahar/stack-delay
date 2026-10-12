@@ -57,6 +57,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.worker
+    container_name: sds-worker
     env_file:
       - ../.env
     environment:
