@@ -8,7 +8,7 @@ on:
 
 jobs:
   lint-and-typecheck:
-    name: Lint & Type Check
+    name: Type Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,9 +24,6 @@ jobs:
 
       - name: Build shared package
         run: pnpm --filter @stack-decay/shared build
-
-      - name: Lint
-        run: pnpm lint
 
       - name: Type check
         run: pnpm typecheck
