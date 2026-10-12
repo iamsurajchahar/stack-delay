@@ -63,8 +63,8 @@ Each repo gets an aggregate grade (A through F) with concentration risk penaltie
 
 ```bash
 # Clone the repo
-git clone https://github.com/iamsurajchahar/stack-decay.git
-cd stack-decay
+git clone https://github.com/iamsurajchahar/stack-delay.git
+cd stack-delay
 
 # Install dependencies
 pnpm install
@@ -131,7 +131,7 @@ LOG_LEVEL=info
 ## Project Structure
 
 ```
-stack-decay/
+stack-delay/
 ├── packages/
 │   ├── client/          # React frontend
 │   │   └── src/
