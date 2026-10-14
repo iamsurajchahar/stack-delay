@@ -167,13 +167,13 @@ Grade thresholds: **A** (80+) · **B** (65–79) · **C** (50–64) · **D** (35
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/auth/github` | Start GitHub OAuth flow |
+| `GET` | `/api/auth/github` | Start GitHub OAuth flow |
 | `GET` | `/api/repos` | List connected repositories |
 | `POST` | `/api/repos` | Add a repository |
 | `GET` | `/api/repos/:id` | Repository details |
 | `POST` | `/api/repos/:id/scans` | Trigger a new scan |
 | `GET` | `/api/repos/:id/scans/latest` | Latest scan results |
-| `GET` | `/api/repos/:id/scores` | Score snapshot history |
+| `GET` | `/api/repos/:id/scores/history` | Score snapshot history |
 | `GET` | `/api/repos/:id/vulnerabilities` | Vulnerability list |
 | `GET` | `/api/repos/:id/licenses` | License breakdown |
 | `GET` | `/api/repos/:id/eol` | EOL/deprecation timeline |
